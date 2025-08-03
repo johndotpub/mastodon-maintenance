@@ -64,7 +64,7 @@ set -euo pipefail
 
 # Script metadata
 readonly SCRIPT_NAME="Mastodon Cleanup Script"
-readonly SCRIPT_VERSION="1.0.1"
+readonly SCRIPT_VERSION="1.0.2"
 readonly SCRIPT_AUTHOR="@johndotpub@rewt.link" # Mastodon account
 
 # Color codes for output
@@ -84,41 +84,71 @@ readonly DEFAULT_PREVIEW_CARDS_DAYS=30
 readonly DEFAULT_STATUSES_DAYS=30
 readonly DOMAIN_BLOCKS_FILE="domain_blocks.txt"
 
-# Operation group functions
+# =============================================================================
+# Operation Group Functions
+# =============================================================================
+
+# Usage: run_domains
+# Description: Executes domain-related operations (export and purge)
+# Returns: 0 on success, 1 on failure
 run_domains() {
     export_domain_blocks
     purge_domains
 }
 
+# Usage: run_accounts
+# Description: Executes account cleanup operations (cull and prune)
+# Returns: 0 on success, 1 on failure
 run_accounts() {
     cull_accounts
     prune_accounts
 }
 
+# Usage: run_media
+# Description: Executes media cleanup operations (remove old media)
+# Returns: 0 on success, 1 on failure
 run_media() {
     remove_old_media
 }
 
+# Usage: run_profile_media
+# Description: Executes profile media cleanup operations
+# Returns: 0 on success, 1 on failure
 run_profile_media() {
     remove_old_profile_media
 }
 
+# Usage: run_preview_cards
+# Description: Executes preview cards cleanup operations
+# Returns: 0 on success, 1 on failure
 run_preview_cards() {
     remove_old_preview_cards
 }
 
+# Usage: run_remote_statuses
+# Description: Executes remote statuses cleanup operations
+# Returns: 0 on success, 1 on failure
 run_remote_statuses() {
     remove_old_remote_statuses
 }
 
+# Usage: run_orphaned_media
+# Description: Executes orphaned media cleanup operations
+# Returns: 0 on success, 1 on failure
 run_orphaned_media() {
     remove_orphaned_media
 }
 
+# Usage: run_feeds
+# Description: Executes feed building operations
+# Returns: 0 on success, 1 on failure
 run_feeds() {
     build_feeds
 }
 
+# Usage: run_all_media
+# Description: Executes all media cleanup operations
+# Returns: 0 on success, 1 on failure
 run_all_media() {
     remove_old_media
     remove_old_profile_media
@@ -126,6 +156,9 @@ run_all_media() {
     remove_orphaned_media
 }
 
+# Usage: run_maintenance
+# Description: Executes standard maintenance operations
+# Returns: 0 on success, 1 on failure
 run_maintenance() {
     cull_accounts
     prune_accounts
@@ -134,8 +167,13 @@ run_maintenance() {
     remove_old_preview_cards
     remove_old_remote_statuses
     remove_orphaned_media
+    elasticsearch_maintenance
+    build_feeds
 }
 
+# Usage: run_full
+# Description: Executes complete cleanup operations (all operations)
+# Returns: 0 on success, 1 on failure
 run_full() {
     export_domain_blocks
     purge_domains
@@ -146,9 +184,13 @@ run_full() {
     remove_old_preview_cards
     remove_old_remote_statuses
     remove_orphaned_media
+    elasticsearch_maintenance
     build_feeds
 }
 
+# Usage: run_account_cleanup
+# Description: Executes enhanced account cleanup operations
+# Returns: 0 on success, 1 on failure
 run_account_cleanup() {
     list_inactive_accounts
     delete_inactive_accounts
@@ -156,6 +198,9 @@ run_account_cleanup() {
     prune_accounts
 }
 
+# Usage: run_media_audit
+# Description: Executes complete media audit operations
+# Returns: 0 on success, 1 on failure
 run_media_audit() {
     media_stats
     list_orphaned_media
@@ -165,6 +210,9 @@ run_media_audit() {
     remove_old_preview_cards
 }
 
+# Usage: run_domain_audit
+# Description: Executes domain audit operations
+# Returns: 0 on success, 1 on failure
 run_domain_audit() {
     list_domain_blocks
     check_domain_health
@@ -172,13 +220,34 @@ run_domain_audit() {
     purge_domains
 }
 
+# Usage: run_system_health
+# Description: Executes system health check operations
+# Returns: 0 on success, 1 on failure
 run_system_health() {
-    system_info
-    system_stats
-    queue_status
-    cache_clear
+    if [[ "$VERBOSE" == "true" ]]; then
+        system_info
+        system_stats
+        queue_status
+        cache_status
+    else
+        # Quiet mode: gather all health info without interstitial logging
+        safe_execute "System information" \
+            stdbuf -oL rails runner "begin; puts 'Mastodon Instance Information:'; puts 'Rails environment: ' + Rails.env; puts 'Database: ' + ActiveRecord::Base.connection.adapter_name; puts 'Mastodon version: ' + Mastodon::Version.to_s; puts 'Ruby version: ' + RUBY_VERSION; puts 'Rails version: ' + Rails.version; puts 'PostgreSQL version: ' + (ActiveRecord::Base.connection.execute('SELECT version()').first['version'] rescue 'unknown'); rescue => e; puts 'Error: ' + e.message; exit 1; end"
+        
+        safe_execute "System statistics" \
+            stdbuf -oL rails runner "begin; puts 'Instance Statistics:'; puts 'Users: ' + User.count.to_s; puts 'Statuses: ' + Status.count.to_s; puts 'Media attachments: ' + MediaAttachment.count.to_s; puts 'Domains: ' + Account.distinct.count(:domain).to_s; puts 'Local accounts: ' + Account.local.count.to_s; puts 'Remote accounts: ' + Account.remote.count.to_s; rescue => e; puts 'Error: ' + e.message; exit 1; end"
+        
+        safe_execute "Queue status" \
+            stdbuf -oL rails runner "begin; puts 'Queue Status:'; puts 'Sidekiq processes: ' + Sidekiq::ProcessSet.new.size.to_s rescue puts 'Sidekiq not available'; rescue => e; puts 'Error: ' + e.message; exit 1; end"
+        
+        safe_execute "Cache status" \
+            stdbuf -oL rails runner "begin; puts 'Cache Status:'; puts 'Redis connected: ' + (Rails.cache.redis.ping == 'PONG' ? 'true' : 'false') rescue puts 'Redis connected: false'; puts 'Cache keys: ' + (Rails.cache.redis.dbsize rescue 'unknown').to_s; rescue => e; puts 'Error: ' + e.message; exit 1; end"
+    fi
 }
 
+# Usage: run_deep_cleanup
+# Description: Executes complete cleanup with cache clearing
+# Returns: 0 on success, 1 on failure
 run_deep_cleanup() {
     export_domain_blocks
     purge_domains
@@ -190,7 +259,7 @@ run_deep_cleanup() {
     remove_old_remote_statuses
     remove_orphaned_media
     build_feeds
-    cache_clear
+    clear_cache
 }
 
 # Global variables
@@ -210,7 +279,10 @@ SELECTED_OPERATION=""
 # Utility Functions
 # =============================================================================
 
-# Print colored output with timestamp
+# Usage: print_log level color message
+# Description: Prints colored output with timestamp
+# Parameters: level (INFO/SUCCESS/WARNING/ERROR), color (ANSI color code), message (text to display)
+# Returns: None
 print_log() {
     local level="$1"
     local color="$2"
@@ -225,22 +297,42 @@ print_log() {
     fi
 }
 
+# Usage: print_info message
+# Description: Prints info-level message in blue
+# Parameters: message (text to display)
+# Returns: None
 print_info() { 
     print_log "INFO" "$BLUE" "$1"
 }
 
+# Usage: print_success message
+# Description: Prints success-level message in green
+# Parameters: message (text to display)
+# Returns: None
 print_success() { 
     print_log "SUCCESS" "$GREEN" "$1"
 }
 
+# Usage: print_warning message
+# Description: Prints warning-level message in yellow
+# Parameters: message (text to display)
+# Returns: None
 print_warning() { 
     print_log "WARNING" "$YELLOW" "$1"
 }
 
+# Usage: print_error message
+# Description: Prints error-level message in red to stderr
+# Parameters: message (text to display)
+# Returns: None
 print_error() { 
     print_log "ERROR" "$RED" "$1" >&2
 }
 
+# Usage: print_header title
+# Description: Prints a formatted header with timestamp
+# Parameters: title (header text to display)
+# Returns: None
 print_header() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
@@ -254,17 +346,48 @@ print_header() {
     fi
 }
 
-# Check if command exists
+# Usage: command_exists command_name
+# Description: Checks if a command exists in PATH
+# Parameters: command_name (name of command to check)
+# Returns: 0 if command exists, 1 if not found
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Validate numeric input
+# Usage: is_numeric value
+# Description: Validates if a value is numeric
+# Parameters: value (string to validate)
+# Returns: 0 if numeric, 1 if not
 is_numeric() {
     [[ "$1" =~ ^[0-9]+$ ]]
 }
 
-# Set selected operation
+# Usage: validate_configuration
+# Description: Validates all configuration parameters
+# Returns: 0 if valid, 1 if invalid
+validate_configuration() {
+    # Validate concurrency (1-32)
+    if [[ "$CONCURRENCY" -lt 1 || "$CONCURRENCY" -gt 32 ]]; then
+        print_error "Concurrency must be between 1 and 32 (current: $CONCURRENCY)"
+        return 1
+    fi
+    
+    # Validate retention days (1-365)
+    for var in MEDIA_DAYS PROFILE_MEDIA_DAYS PREVIEW_CARDS_DAYS STATUSES_DAYS; do
+        local value="${!var}"
+        if [[ "$value" -lt 1 || "$value" -gt 365 ]]; then
+            print_error "$var must be between 1 and 365 days (current: $value)"
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
+# Usage: set_operation operation_name
+# Description: Sets the selected operation, validates only one operation is selected
+# Parameters: operation_name (name of operation to set)
+# Returns: 0 on success, 1 on failure
 set_operation() {
     local operation="$1"
     
@@ -277,7 +400,9 @@ set_operation() {
     print_info "Selected operation: $operation"
 }
 
-# List all available operations
+# Usage: list_operations
+# Description: Lists all available operations with descriptions
+# Returns: None
 list_operations() {
     print_header "Available Operations"
     echo
@@ -308,7 +433,10 @@ list_operations() {
     echo
 }
 
-# Safe execution with error handling
+# Usage: safe_execute description command [args...]
+# Description: Executes a command with error handling and logging
+# Parameters: description (human-readable description), command (command to execute), args (command arguments)
+# Returns: 0 on success, 1 on failure
 safe_execute() {
     local description="$1"
     shift
@@ -339,7 +467,9 @@ safe_execute() {
     fi
 }
 
-# Check prerequisites
+# Usage: check_prerequisites
+# Description: Checks if all required commands and environment are available
+# Returns: 0 if all prerequisites met, 1 if any missing
 check_prerequisites() {
     print_header "Checking Prerequisites"
     
@@ -364,13 +494,18 @@ check_prerequisites() {
     if ! rails runner "puts 'Rails environment check passed'" >/dev/null 2>&1; then
         print_error "Rails environment not properly configured"
         print_error "Please ensure you're running this script from your Mastodon installation directory"
+        print_error "Make sure Rails is available and the database is accessible"
+        print_error "You may need to run: bundle exec rails runner"
         exit 1
     fi
     
     print_success "All prerequisites satisfied"
 }
 
-# Parse command line arguments
+# Usage: parse_arguments [args...]
+# Description: Parses command line arguments and sets global variables
+# Parameters: args (command line arguments)
+# Returns: 0 on success, 1 on failure
 parse_arguments() {
     print_header "Parsing Arguments"
     
@@ -444,7 +579,7 @@ parse_arguments() {
                 shift
                 ;;
             # Operation flags
-            --domains|--accounts|--media|--profile-media|--preview-cards|--remote-statuses|--orphaned-media|--feeds|--all-media|--maintenance|--full|--account-cleanup|--media-audit|--domain-audit|--system-health|--deep-cleanup)
+            --domains|--accounts|--media|--profile-media|--preview-cards|--remote-statuses|--orphaned-media|--feeds|--clear-cache|--elasticsearch|--all-media|--maintenance|--full|--account-cleanup|--media-audit|--domain-audit|--system-health|--deep-cleanup)
                 local operation="${1#--}"
                 if ! set_operation "$operation"; then
                     exit 1
@@ -474,7 +609,9 @@ parse_arguments() {
     print_success "Arguments parsed successfully"
 }
 
-# Show help information
+# Usage: show_help
+# Description: Displays comprehensive help information
+# Returns: None
 show_help() {
     cat << EOF
 $SCRIPT_NAME v$SCRIPT_VERSION
@@ -506,6 +643,8 @@ OPERATIONS:
         --remote-statuses      Remove old remote statuses (configurable, default: $DEFAULT_STATUSES_DAYS days)
         --orphaned-media       Remove orphaned media
         --feeds                Build all feeds
+        --clear-cache          Clear Redis cache
+        --elasticsearch        Elasticsearch maintenance
     
     Combined Operations:
         --all-media            All media operations
@@ -540,13 +679,15 @@ EXAMPLES:
         $0 --deep-cleanup               # Complete cleanup with cache
     
     Custom Retention Examples:
-        $0 --media-days 60 --maintenance    # Custom media retention
+        $0 --media-days 60 --maintenance          # Custom media retention
         $0 --preview-cards-days 15 --maintenance  # Custom preview cards retention
 
 EOF
 }
 
-# Show version information
+# Usage: show_version
+# Description: Displays script version information
+# Returns: None
 show_version() {
     echo "$SCRIPT_NAME v$SCRIPT_VERSION"
     echo "Author: $SCRIPT_AUTHOR"
@@ -556,7 +697,9 @@ show_version() {
 # Main Functions
 # =============================================================================
 
-# Export domain blocks to file
+# Usage: export_domain_blocks
+# Description: Exports domain blocks to a file for processing, sorted alphabetically
+# Returns: 0 on success, 1 on failure
 export_domain_blocks() {
     print_header "Exporting Domain Blocks"
     
@@ -565,15 +708,15 @@ export_domain_blocks() {
         rm -f "$DOMAIN_BLOCKS_FILE"
     fi
     
-    print_info "Exporting domain blocks to $DOMAIN_BLOCKS_FILE"
+    print_info "Exporting domain blocks to $DOMAIN_BLOCKS_FILE (will be sorted alphabetically)"
     
     if ! rails runner "
         begin
-            domains = DomainBlock.pluck(:domain)
+            domains = DomainBlock.pluck(:domain).sort
             File.open('$DOMAIN_BLOCKS_FILE', 'w') do |f|
                 domains.each { |d| f.puts d }
             end
-            puts \"Exported \#{domains.count} domains to $DOMAIN_BLOCKS_FILE\"
+            puts \"Exported \#{domains.count} domains to $DOMAIN_BLOCKS_FILE (sorted alphabetically)\"
         rescue => e
             puts \"Error exporting domains: \#{e.message}\"
             exit 1
@@ -590,10 +733,12 @@ export_domain_blocks() {
     
     local domain_count
     domain_count=$(wc -l < "$DOMAIN_BLOCKS_FILE" 2>/dev/null || echo "0")
-    print_success "Exported $domain_count domains to $DOMAIN_BLOCKS_FILE"
+    print_success "Exported $domain_count domains to $DOMAIN_BLOCKS_FILE (sorted alphabetically)"
 }
 
-# Purge domains from the domain blocks file
+# Usage: purge_domains
+# Description: Purges domains from the domain blocks file with progress tracking
+# Returns: 0 on success, 1 on failure
 purge_domains() {
     print_header "Purging Blocked Domains"
     
@@ -604,12 +749,36 @@ purge_domains() {
     
     local processed_count=0
     local error_count=0
+    local total_domains=0
+    
+    # Count total domains first
+    while IFS= read -r domain || [[ -n "$domain" ]]; do
+        # Skip empty lines and comments
+        if [[ -z "$domain" || "$domain" =~ ^[[:space:]]*# ]]; then
+            continue
+        fi
+        
+        # Extract domain name (handle CSV format)
+        local domain_name
+        domain_name=$(echo "$domain" | cut -d',' -f1 | xargs)
+        
+        if [[ -n "$domain_name" ]]; then
+            ((total_domains++))
+        fi
+    done < "$DOMAIN_BLOCKS_FILE"
     
     print_info "Configuration:"
     print_info "  Dry run: $DRY_RUN"
     print_info "  Include subdomains: $INCLUDE_SUBDOMAINS"
     print_info "  Concurrency: $CONCURRENCY"
+    print_info "  Total domains to process: $total_domains"
     
+    if [[ $total_domains -eq 0 ]]; then
+        print_warning "No domains found to process"
+        return 0
+    fi
+    
+    # Process domains with progress tracking
     while IFS= read -r domain || [[ -n "$domain" ]]; do
         # Skip empty lines and comments
         if [[ -z "$domain" || "$domain" =~ ^[[:space:]]*# ]]; then
@@ -625,7 +794,8 @@ purge_domains() {
             continue
         fi
         
-        print_info "Processing domain: $domain_name"
+        ((processed_count++))
+        local progress_percent=$(( (processed_count * 100) / total_domains ))
         
         # Build tootctl command with conditional flags
         local cmd_args=(
@@ -641,18 +811,24 @@ purge_domains() {
             cmd_args+=(--include-subdomains)
         fi
         
+        # Show progress before starting the command
+        print_info "Processing domain: $domain_name ($processed_count/$total_domains - ${progress_percent}%)"
+        
         if safe_execute "Purge domain: $domain_name" "${cmd_args[@]}"; then
-            ((processed_count++))
+            print_success "✓ Domain purged: $domain_name ($processed_count/$total_domains - ${progress_percent}%)"
         else
             ((error_count++))
+            print_error "✗ Failed to purge: $domain_name ($processed_count/$total_domains - ${progress_percent}%)"
         fi
         
     done < "$DOMAIN_BLOCKS_FILE"
     
-    print_success "Domain purge completed: $processed_count processed, $error_count errors"
+    print_success "Domain purge completed: $processed_count processed, $error_count errors (${progress_percent}% complete)"
 }
 
-# Cull non-existent accounts
+# Usage: cull_accounts
+# Description: Culls non-existent accounts
+# Returns: 0 on success, 1 on failure
 cull_accounts() {
     print_header "Culling Non-existent Accounts"
     
@@ -660,7 +836,9 @@ cull_accounts() {
         stdbuf -oL tootctl accounts cull
 }
 
-# Prune non-interactive accounts
+# Usage: prune_accounts
+# Description: Prunes non-interactive accounts
+# Returns: 0 on success, 1 on failure
 prune_accounts() {
     print_header "Pruning Non-interactive Accounts"
     
@@ -668,7 +846,9 @@ prune_accounts() {
         stdbuf -oL tootctl accounts prune
 }
 
-# Remove old media files
+# Usage: remove_old_media
+# Description: Removes old media files based on configured retention period
+# Returns: 0 on success, 1 on failure
 remove_old_media() {
     print_header "Removing Old Media Files"
     
@@ -678,7 +858,9 @@ remove_old_media() {
         --concurrency "$CONCURRENCY"
 }
 
-# Remove old profile media
+# Usage: remove_old_profile_media
+# Description: Removes old profile media based on configured retention period
+# Returns: 0 on success, 1 on failure
 remove_old_profile_media() {
     print_header "Removing Old Profile Media"
     
@@ -689,7 +871,9 @@ remove_old_profile_media() {
         --concurrency "$CONCURRENCY"
 }
 
-# Remove old preview cards
+# Usage: remove_old_preview_cards
+# Description: Removes old preview cards based on configured retention period
+# Returns: 0 on success, 1 on failure
 remove_old_preview_cards() {
     print_header "Removing Old Preview Cards"
     
@@ -699,7 +883,9 @@ remove_old_preview_cards() {
         --concurrency "$CONCURRENCY"
 }
 
-# Remove old remote statuses
+# Usage: remove_old_remote_statuses
+# Description: Removes old remote statuses based on configured retention period
+# Returns: 0 on success, 1 on failure
 remove_old_remote_statuses() {
     print_header "Removing Old Remote Statuses"
     
@@ -708,7 +894,9 @@ remove_old_remote_statuses() {
         --days "$STATUSES_DAYS"
 }
 
-# Remove orphaned media
+# Usage: remove_orphaned_media
+# Description: Removes orphaned media files
+# Returns: 0 on success, 1 on failure
 remove_orphaned_media() {
     print_header "Removing Orphaned Media"
     
@@ -716,7 +904,9 @@ remove_orphaned_media() {
         stdbuf -oL tootctl media remove-orphans
 }
 
-# Build all feeds
+# Usage: build_feeds
+# Description: Builds all feeds for optimal performance
+# Returns: 0 on success, 1 on failure
 build_feeds() {
     print_header "Building All Feeds"
     
@@ -732,7 +922,9 @@ build_feeds() {
 # Enhanced Maintenance Functions
 # =============================================================================
 
-# List inactive accounts
+# Usage: list_inactive_accounts
+# Description: Lists inactive accounts for review
+# Returns: 0 on success, 1 on failure
 list_inactive_accounts() {
     print_header "Listing Inactive Accounts"
     
@@ -742,7 +934,9 @@ list_inactive_accounts() {
         stdbuf -oL tootctl accounts list --inactive
 }
 
-# Delete inactive accounts
+# Usage: delete_inactive_accounts
+# Description: Deletes inactive accounts permanently
+# Returns: 0 on success, 1 on failure
 delete_inactive_accounts() {
     print_header "Deleting Inactive Accounts"
     
@@ -752,7 +946,9 @@ delete_inactive_accounts() {
         stdbuf -oL tootctl accounts delete --inactive
 }
 
-# Media statistics
+# Usage: media_stats
+# Description: Shows media storage statistics
+# Returns: 0 on success, 1 on failure
 media_stats() {
     print_header "Media Statistics"
     
@@ -762,7 +958,9 @@ media_stats() {
         stdbuf -oL tootctl media stats
 }
 
-# List orphaned media
+# Usage: list_orphaned_media
+# Description: Lists orphaned media files before removal
+# Returns: 0 on success, 1 on failure
 list_orphaned_media() {
     print_header "Listing Orphaned Media"
     
@@ -772,7 +970,9 @@ list_orphaned_media() {
         stdbuf -oL tootctl media list-orphans
 }
 
-# List domain blocks
+# Usage: list_domain_blocks
+# Description: Lists current domain blocks
+# Returns: 0 on success, 1 on failure
 list_domain_blocks() {
     print_header "Listing Domain Blocks"
     
@@ -782,7 +982,9 @@ list_domain_blocks() {
         stdbuf -oL tootctl domains list
 }
 
-# Check domain health
+# Usage: check_domain_health
+# Description: Tests connectivity to blocked domains
+# Returns: 0 on success, 1 on failure
 check_domain_health() {
     print_header "Checking Domain Health"
     
@@ -792,38 +994,59 @@ check_domain_health() {
         stdbuf -oL tootctl domains check
 }
 
-# System information
+# Usage: system_info
+# Description: Shows system information and health status
+# Returns: 0 on success, 1 on failure
 system_info() {
     print_header "System Information"
     
     print_info "Showing system information and health"
     
     safe_execute "System information" \
-        stdbuf -oL tootctl info
+        stdbuf -oL rails runner "begin; puts 'Mastodon Instance Information:'; puts 'Rails environment: ' + Rails.env; puts 'Database: ' + ActiveRecord::Base.connection.adapter_name; puts 'Mastodon version: ' + Mastodon::Version.to_s; puts 'Ruby version: ' + RUBY_VERSION; puts 'Rails version: ' + Rails.version; puts 'PostgreSQL version: ' + (ActiveRecord::Base.connection.execute('SELECT version()').first['version'] rescue 'unknown'); rescue => e; puts 'Error: ' + e.message; exit 1; end"
 }
 
-# System statistics
+# Usage: system_stats
+# Description: Shows instance statistics and usage information
+# Returns: 0 on success, 1 on failure
 system_stats() {
     print_header "System Statistics"
     
     print_info "Showing instance statistics and usage"
     
     safe_execute "System statistics" \
-        stdbuf -oL tootctl stats
+        stdbuf -oL rails runner "begin; puts 'Instance Statistics:'; puts 'Users: ' + User.count.to_s; puts 'Statuses: ' + Status.count.to_s; puts 'Media attachments: ' + MediaAttachment.count.to_s; puts 'Domains: ' + Account.distinct.count(:domain).to_s; puts 'Local accounts: ' + Account.local.count.to_s; puts 'Remote accounts: ' + Account.remote.count.to_s; rescue => e; puts 'Error: ' + e.message; exit 1; end"
 }
 
-# Queue status
+# Usage: queue_status
+# Description: Checks background job queue status
+# Returns: 0 on success, 1 on failure
 queue_status() {
     print_header "Queue Status"
     
     print_info "Checking background job queue status"
     
     safe_execute "Queue status" \
-        stdbuf -oL tootctl queue
+        stdbuf -oL rails runner "begin; puts 'Queue Status:'; puts 'Sidekiq processes: ' + Sidekiq::ProcessSet.new.size.to_s rescue puts 'Sidekiq not available'; rescue => e; puts 'Error: ' + e.message; exit 1; end"
 }
 
-# Cache clear
-cache_clear() {
+# Usage: cache_status
+# Description: Checks Redis cache status
+# Returns: 0 on success, 1 on failure
+cache_status() {
+    print_header "Cache Status"
+    
+    print_info "Checking Redis cache status"
+    
+    safe_execute "Cache status" \
+        stdbuf -oL rails runner "begin; puts 'Cache Status:'; puts 'Redis connected: ' + (Rails.cache.redis.ping == 'PONG' ? 'true' : 'false') rescue puts 'Redis connected: false'; puts 'Cache keys: ' + (Rails.cache.redis.dbsize rescue 'unknown').to_s; rescue => e; puts 'Error: ' + e.message; exit 1; end"
+}
+
+# Clear Redis cache
+# Usage: clear_cache
+# Description: Clears Redis cache using tootctl cache clear
+# Returns: 0 on success, 1 on failure
+clear_cache() {
     print_header "Clearing Cache"
     
     print_info "Clearing Redis cache (safe operation)"
@@ -832,7 +1055,22 @@ cache_clear() {
         stdbuf -oL tootctl cache clear
 }
 
-# Execute the selected operation
+# Elasticsearch maintenance
+# Usage: elasticsearch_maintenance
+# Description: Performs Elasticsearch maintenance using tootctl search deploy
+# Returns: 0 on success, 1 on failure
+elasticsearch_maintenance() {
+    print_header "Elasticsearch Maintenance"
+    
+    print_info "Performing Elasticsearch maintenance operations"
+    
+    safe_execute "Elasticsearch maintenance" \
+        stdbuf -oL tootctl search deploy
+}
+
+# Usage: execute_selected_operation
+# Description: Executes the selected operation based on SELECTED_OPERATION variable
+# Returns: 0 on success, 1 on failure
 execute_selected_operation() {
     case "$SELECTED_OPERATION" in
         domains) 
@@ -858,6 +1096,12 @@ execute_selected_operation() {
             ;;
         feeds) 
             run_feeds 
+            ;;
+        clear-cache) 
+            clear_cache 
+            ;;
+        elasticsearch) 
+            elasticsearch_maintenance 
             ;;
         all-media) 
             run_all_media 
@@ -894,6 +1138,10 @@ execute_selected_operation() {
 # Main Execution
 # =============================================================================
 
+# Usage: main [args...]
+# Description: Main entry point for the script
+# Parameters: args (command line arguments)
+# Returns: 0 on success, 1 on failure
 main() {
     print_header "Starting Mastodon Cleanup Process"
     print_info "Script version: $SCRIPT_VERSION"
@@ -910,6 +1158,11 @@ main() {
     
     # Parse command line arguments
     parse_arguments "$@"
+    
+    # Validate configuration
+    if ! validate_configuration; then
+        exit 1
+    fi
     
     # Display configuration
     print_header "Configuration Summary"

@@ -44,7 +44,7 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 
 ## 📋 Prerequisites
 
-- **Mastodon Instance**: Running Mastodon installation
+- **Mastodon Instance**: Running Mastodon installation (minimum version: 4.4.2)
 - **Bash**: Version 4.0 or higher
 - **Required Commands**: `rails`, `tootctl`, and `stdbuf`
 - **Permissions**: Run from your Mastodon installation directory
@@ -85,7 +85,12 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 
 # Remove orphaned media
 ./clean.sh --orphaned-media
-```
+
+# Clear Redis cache
+./clean.sh --clear-cache
+
+# Elasticsearch maintenance
+./clean.sh --elasticsearch
 
 ### **Combined Operations**
 ```bash
@@ -147,11 +152,13 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 - `--remote-statuses` - Remove old remote statuses (configurable, default: 30 days)
 - `--orphaned-media` - Remove orphaned media
 - `--feeds` - Build all feeds
+- `--clear-cache` - Clear Redis cache
+- `--elasticsearch` - Elasticsearch maintenance
 
 ### **Combined Operations**
 - `--all-media` - All media operations
-- `--maintenance` - Standard maintenance operations
-- `--full` - Complete cleanup (all operations)
+- `--maintenance` - Standard maintenance operations (includes elasticsearch)
+- `--full` - Complete cleanup (all operations, includes elasticsearch)
 
 ### **Enhanced Operations**
 - `--account-cleanup` - Enhanced account cleanup (inactive + cull + prune)
@@ -253,10 +260,10 @@ The script provides detailed output showing:
 ./clean.sh --system-health
 ```
 Provides:
-- System information (`tootctl info`)
-- Instance statistics (`tootctl stats`)
-- Queue status (`tootctl queue`)
-- Cache status (`tootctl cache clear`)
+- System information (Rails environment, database, and Mastodon version)
+- Instance statistics (user, status, media, domain, and account counts via Rails)
+- Queue status (Sidekiq process count and Redis connectivity)
+- Cache status (Redis connectivity and cache key count)
 
 ### **Media Audit**
 ```bash
@@ -327,6 +334,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔄 Version History
 
+- **v1.0.2** - Added Elasticsearch maintenance, improved error handling, and enhanced configuration validation
 - **v1.0.1** - Simplified script architecture for improved reliability and easier maintenance
 - **v1.0.0** - Initial release with comprehensive maintenance operations
 
