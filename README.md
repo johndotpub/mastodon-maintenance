@@ -2,6 +2,24 @@
 
 A comprehensive, production-ready maintenance and cleanup script for Mastodon instances. This script provides safe, automated maintenance operations that can run while your Mastodon instance is online.
 
+## 📋 Table of Contents
+
+- [🚀 Features](#-features)
+- [📋 Prerequisites](#-prerequisites)
+- [🛠️ Installation](#️-installation)
+- [📖 Usage](#-usage)
+- [🔧 Available Operations](#-available-operations)
+- [⚙️ Configuration](#️-configuration)
+- [📊 Logging and Output](#-logging-and-output)
+- [🛡️ Safety Features](#️-safety-features)
+- [📈 Performance](#-performance)
+- [🔍 Monitoring and Health](#-monitoring-and-health)
+- [🚨 Important Notes](#-important-notes)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+- [📞 Support](#-support)
+- [🔄 Version History](#-version-history)
+
 ## 🚀 Features
 
 ### **Safe Online Operations**
@@ -21,14 +39,14 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 - ✅ Modern bash scripting with proper error handling
 - ✅ Comprehensive logging with timestamps
 - ✅ Color-coded output for better readability
-- ✅ Timeout protection for long-running operations
 - ✅ Proper argument parsing and validation
+- ✅ Simplified architecture for improved reliability
 
 ## 📋 Prerequisites
 
 - **Mastodon Instance**: Running Mastodon installation
 - **Bash**: Version 4.0 or higher
-- **Required Commands**: `rails`, `tootctl`, `stdbuf`, and `timeout`
+- **Required Commands**: `rails`, `tootctl`, and `stdbuf`
 - **Permissions**: Run from your Mastodon installation directory
 
 ## 🛠️ Installation
@@ -52,7 +70,6 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 ## 📖 Usage
 
 ### **Basic Operations**
-
 ```bash
 # Full cleanup in dry-run mode (recommended first run)
 ./clean.sh --dry-run
@@ -71,7 +88,6 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 ```
 
 ### **Combined Operations**
-
 ```bash
 # Standard maintenance (recommended for regular use)
 ./clean.sh --maintenance
@@ -84,7 +100,6 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 ```
 
 ### **Enhanced Operations**
-
 ```bash
 # Enhanced account cleanup (includes inactive accounts)
 ./clean.sh --account-cleanup
@@ -103,7 +118,6 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 ```
 
 ### **Advanced Options**
-
 ```bash
 # Custom concurrency level
 ./clean.sh --concurrency 8 --domains
@@ -156,9 +170,6 @@ A comprehensive, production-ready maintenance and cleanup script for Mastodon in
 - **Remote statuses retention**: 30 days (configurable with `--statuses-days`)
 
 ### **Configuration Options**
-
-The script provides several command-line options for customizing retention periods:
-
 ```bash
 # Custom retention periods
 --media-days N           # Set media retention days (default: 90)
@@ -170,9 +181,6 @@ The script provides several command-line options for customizing retention perio
 ./clean.sh --media-days 60 --profile-media-days 60 --maintenance
 ./clean.sh --preview-cards-days 15 --statuses-days 15 --maintenance
 ```
-
-### **Environment Variables**
-The script uses sensible defaults, but you can modify the script to use environment variables if needed.
 
 ## 📊 Logging and Output
 
@@ -193,7 +201,7 @@ Logs are saved to `cleanup_YYYYMMDD_HHMMSS.log` in the current directory.
 # Enable verbose output
 ./clean.sh --verbose --system-health
 ```
-Shows detailed command execution and output.
+Shows detailed command execution information (command details, working directory). All command output is displayed in real-time regardless of verbose mode.
 
 ## 🛡️ Safety Features
 
@@ -213,13 +221,11 @@ Shows what would be executed without actually running the commands.
 ./clean.sh --maintenance
 ```
 The script provides detailed output showing:
-- Selected operations and their count
-- Configuration summary with retention periods
-- Operation execution progress
-- Skipped operations (for clarity)
+- Selected operation and configuration
+- Real-time operation execution progress
+- Individual function execution status
 
 ### **Error Handling**
-- **Timeout protection**: Operations timeout after 5 minutes (configurable)
 - **Graceful failures**: Failed operations don't stop the entire script
 - **Comprehensive reporting**: Summary of successful and failed operations
 
@@ -247,10 +253,10 @@ The script provides detailed output showing:
 ./clean.sh --system-health
 ```
 Provides:
-- System information
-- Instance statistics
-- Queue status
-- Cache status
+- System information (`tootctl info`)
+- Instance statistics (`tootctl stats`)
+- Queue status (`tootctl queue`)
+- Cache status (`tootctl cache clear`)
 
 ### **Media Audit**
 ```bash
@@ -321,7 +327,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔄 Version History
 
-- **v1.0.1** - Added configurable retention periods (`--media-days`, `--profile-media-days`, `--preview-cards-days`, `--statuses-days`), improved error handling, and enhanced debugging output
+- **v1.0.1** - Simplified script architecture for improved reliability and easier maintenance
 - **v1.0.0** - Initial release with comprehensive maintenance operations
 
 ---

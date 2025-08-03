@@ -84,30 +84,114 @@ readonly DEFAULT_PREVIEW_CARDS_DAYS=30
 readonly DEFAULT_STATUSES_DAYS=30
 readonly DOMAIN_BLOCKS_FILE="domain_blocks.txt"
 
-# Operation definitions
-declare -A OPERATIONS=(
-    # Basic Operations
-    ["domains"]="export_domain_blocks purge_domains"
-    ["accounts"]="cull_accounts prune_accounts"
-    ["media"]="remove_old_media"
-    ["profile-media"]="remove_old_profile_media"
-    ["preview-cards"]="remove_old_preview_cards"
-    ["remote-statuses"]="remove_old_remote_statuses"
-    ["orphaned-media"]="remove_orphaned_media"
-    ["feeds"]="build_feeds"
-    
-    # Combined Operations
-    ["all-media"]="remove_old_media remove_old_profile_media remove_old_preview_cards remove_orphaned_media"
-    ["maintenance"]="cull_accounts prune_accounts remove_old_media remove_old_profile_media remove_old_preview_cards remove_old_remote_statuses remove_orphaned_media"
-    ["full"]="export_domain_blocks purge_domains cull_accounts prune_accounts remove_old_media remove_old_profile_media remove_old_preview_cards remove_old_remote_statuses remove_orphaned_media build_feeds"
-    
-    # Enhanced Operations
-    ["account-cleanup"]="list_inactive_accounts delete_inactive_accounts cull_accounts prune_accounts"
-    ["media-audit"]="media_stats list_orphaned_media remove_orphaned_media remove_old_media remove_old_profile_media remove_old_preview_cards"
-    ["domain-audit"]="list_domain_blocks check_domain_health export_domain_blocks purge_domains"
-    ["system-health"]="system_info system_stats queue_status cache_clear"
-    ["deep-cleanup"]="export_domain_blocks purge_domains cull_accounts prune_accounts remove_old_media remove_old_profile_media remove_old_preview_cards remove_old_remote_statuses remove_orphaned_media build_feeds cache_clear"
-)
+# Operation group functions
+run_domains() {
+    export_domain_blocks
+    purge_domains
+}
+
+run_accounts() {
+    cull_accounts
+    prune_accounts
+}
+
+run_media() {
+    remove_old_media
+}
+
+run_profile_media() {
+    remove_old_profile_media
+}
+
+run_preview_cards() {
+    remove_old_preview_cards
+}
+
+run_remote_statuses() {
+    remove_old_remote_statuses
+}
+
+run_orphaned_media() {
+    remove_orphaned_media
+}
+
+run_feeds() {
+    build_feeds
+}
+
+run_all_media() {
+    remove_old_media
+    remove_old_profile_media
+    remove_old_preview_cards
+    remove_orphaned_media
+}
+
+run_maintenance() {
+    cull_accounts
+    prune_accounts
+    remove_old_media
+    remove_old_profile_media
+    remove_old_preview_cards
+    remove_old_remote_statuses
+    remove_orphaned_media
+}
+
+run_full() {
+    export_domain_blocks
+    purge_domains
+    cull_accounts
+    prune_accounts
+    remove_old_media
+    remove_old_profile_media
+    remove_old_preview_cards
+    remove_old_remote_statuses
+    remove_orphaned_media
+    build_feeds
+}
+
+run_account_cleanup() {
+    list_inactive_accounts
+    delete_inactive_accounts
+    cull_accounts
+    prune_accounts
+}
+
+run_media_audit() {
+    media_stats
+    list_orphaned_media
+    remove_orphaned_media
+    remove_old_media
+    remove_old_profile_media
+    remove_old_preview_cards
+}
+
+run_domain_audit() {
+    list_domain_blocks
+    check_domain_health
+    export_domain_blocks
+    purge_domains
+}
+
+run_system_health() {
+    system_info
+    system_stats
+    queue_status
+    cache_clear
+}
+
+run_deep_cleanup() {
+    export_domain_blocks
+    purge_domains
+    cull_accounts
+    prune_accounts
+    remove_old_media
+    remove_old_profile_media
+    remove_old_preview_cards
+    remove_old_remote_statuses
+    remove_orphaned_media
+    build_feeds
+    cache_clear
+}
 
 # Global variables
 DRY_RUN=false
@@ -120,8 +204,7 @@ STATUSES_DAYS=$DEFAULT_STATUSES_DAYS
 VERBOSE=false
 LOG_TO_FILE=false
 LOG_FILE=""
-SELECTED_OPERATIONS=()
-RUN_ALL_OPERATIONS=true
+SELECTED_OPERATION=""
 
 # =============================================================================
 # Utility Functions
@@ -181,26 +264,17 @@ is_numeric() {
     [[ "$1" =~ ^[0-9]+$ ]]
 }
 
-# Parse operation selection
-parse_operation_selection() {
+# Set selected operation
+set_operation() {
     local operation="$1"
     
-    if [[ ! -v OPERATIONS[$operation] ]]; then
-        print_error "Unknown operation: $operation"
-        print_error "Available operations: ${!OPERATIONS[*]}"
+    if [[ -n "$SELECTED_OPERATION" ]]; then
+        print_error "Only one operation can be selected at a time"
         return 1
     fi
     
-    # Add operations to selected list (split by space)
-    SELECTED_OPERATIONS+=("${OPERATIONS[$operation]}")
-    
-    # Remove duplicates and sort
-    mapfile -t SELECTED_OPERATIONS < <(
-        printf "%s\n" "${SELECTED_OPERATIONS[@]}" | tr ' ' '\n' | grep -v '^$' | sort -u
-    )
-    RUN_ALL_OPERATIONS=false
-    
-    print_info "Added operation '$operation' (functions: ${OPERATIONS[$operation]})"
+    SELECTED_OPERATION="$operation"
+    print_info "Selected operation: $operation"
 }
 
 # List all available operations
@@ -208,43 +282,41 @@ list_operations() {
     print_header "Available Operations"
     echo
     
-    for operation in "${!OPERATIONS[@]}"; do
-        echo -e "${CYAN}--$operation${NC} (functions: ${OPERATIONS[$operation]})"
-    done
-    
+    echo -e "${CYAN}Basic Operations:${NC}"
+    echo "  --domains              Export and purge blocked domains"
+    echo "  --accounts             Clean up accounts (cull + prune)"
+    echo "  --media                Remove old media files"
+    echo "  --profile-media        Remove old profile media"
+    echo "  --preview-cards        Remove old preview cards"
+    echo "  --remote-statuses      Remove old remote statuses"
+    echo "  --orphaned-media       Remove orphaned media"
+    echo "  --feeds                Build all feeds"
     echo
-    print_info "Use --domains, --accounts, --media, etc. to run specific operations"
-    print_info "Use --full to run all operations"
+    
+    echo -e "${CYAN}Combined Operations:${NC}"
+    echo "  --all-media            All media operations"
+    echo "  --maintenance          Standard maintenance operations"
+    echo "  --full                 Complete cleanup (all operations)"
+    echo
+    
+    echo -e "${CYAN}Enhanced Operations:${NC}"
+    echo "  --account-cleanup      Enhanced account cleanup"
+    echo "  --media-audit          Media audit"
+    echo "  --domain-audit         Domain audit"
+    echo "  --system-health        System health check"
+    echo "  --deep-cleanup         Complete cleanup with cache"
+    echo
 }
 
-# Check if operation should be executed
-should_run_operation() {
-    local operation="$1"
-    
-    if [[ "$RUN_ALL_OPERATIONS" == "true" ]]; then
-        return 0
-    fi
-    
-    for selected_op in "${SELECTED_OPERATIONS[@]}"; do
-        if [[ "$selected_op" == "$operation" ]]; then
-            return 0
-        fi
-    done
-    
-    return 1
-}
-
-# Safe execution with error handling and timeout
+# Safe execution with error handling
 safe_execute() {
     local description="$1"
-    local timeout="${2:-300}"  # Default 5 minute timeout
-    shift 2
+    shift
     
     print_info "Executing: $description"
     
     if [[ "$VERBOSE" == "true" ]]; then
         print_info "Command: $*"
-        print_info "Timeout: ${timeout}s"
         print_info "Working directory: $(pwd)"
     fi
     
@@ -253,27 +325,16 @@ safe_execute() {
         return 0
     fi
     
-    # Execute with timeout and capture output
-    local output
+    # Execute with real-time output
     local exit_code
     
-    if output=$(timeout "$timeout" "$@" 2>&1); then
+    if "$@" 2>&1; then
         exit_code=0
-        
-        if [[ "$VERBOSE" == "true" ]]; then
-            echo "$output"
-        fi
-        
         print_success "Completed: $description"
         return 0
     else
         exit_code=$?
         print_error "Failed: $description (exit code: $exit_code)"
-        
-        if [[ "$VERBOSE" == "true" ]]; then
-            echo "$output"
-        fi
-        
         return 1
     fi
 }
@@ -285,7 +346,7 @@ check_prerequisites() {
     local missing_commands=()
     
     # Check for required commands
-    for cmd in rails tootctl timeout; do
+    for cmd in rails tootctl; do
         if ! command_exists "$cmd"; then
             missing_commands+=("$cmd")
         fi
@@ -340,6 +401,42 @@ parse_arguments() {
                 print_info "Verbose mode enabled"
                 shift
                 ;;
+            --media-days)
+                if [[ -z "${2:-}" ]] || ! is_numeric "${2:-}"; then
+                    print_error "Invalid media days value: ${2:-}"
+                    exit 1
+                fi
+                MEDIA_DAYS="$2"
+                print_info "Media retention set to: $MEDIA_DAYS days"
+                shift 2
+                ;;
+            --profile-media-days)
+                if [[ -z "${2:-}" ]] || ! is_numeric "${2:-}"; then
+                    print_error "Invalid profile media days value: ${2:-}"
+                    exit 1
+                fi
+                PROFILE_MEDIA_DAYS="$2"
+                print_info "Profile media retention set to: $PROFILE_MEDIA_DAYS days"
+                shift 2
+                ;;
+            --preview-cards-days)
+                if [[ -z "${2:-}" ]] || ! is_numeric "${2:-}"; then
+                    print_error "Invalid preview cards days value: ${2:-}"
+                    exit 1
+                fi
+                PREVIEW_CARDS_DAYS="$2"
+                print_info "Preview cards retention set to: $PREVIEW_CARDS_DAYS days"
+                shift 2
+                ;;
+            --statuses-days)
+                if [[ -z "${2:-}" ]] || ! is_numeric "${2:-}"; then
+                    print_error "Invalid statuses days value: ${2:-}"
+                    exit 1
+                fi
+                STATUSES_DAYS="$2"
+                print_info "Remote statuses retention set to: $STATUSES_DAYS days"
+                shift 2
+                ;;
             --log-file)
                 LOG_TO_FILE=true
                 LOG_FILE="cleanup_$(date +%Y%m%d_%H%M%S).log"
@@ -349,7 +446,7 @@ parse_arguments() {
             # Operation flags
             --domains|--accounts|--media|--profile-media|--preview-cards|--remote-statuses|--orphaned-media|--feeds|--all-media|--maintenance|--full|--account-cleanup|--media-audit|--domain-audit|--system-health|--deep-cleanup)
                 local operation="${1#--}"
-                if ! parse_operation_selection "$operation"; then
+                if ! set_operation "$operation"; then
                     exit 1
                 fi
                 shift
@@ -390,6 +487,10 @@ OPTIONS:
     --dry-run              Run in dry-run mode (only affects domain operations)
     --include-subdomains   Include subdomains when purging domains
     --concurrency N        Set concurrency level (default: $DEFAULT_CONCURRENCY)
+    --media-days N         Set media retention days (default: $DEFAULT_MEDIA_DAYS)
+    --profile-media-days N Set profile media retention days (default: $DEFAULT_PROFILE_MEDIA_DAYS)
+    --preview-cards-days N Set preview cards retention days (default: $DEFAULT_PREVIEW_CARDS_DAYS)
+    --statuses-days N      Set remote statuses retention days (default: $DEFAULT_STATUSES_DAYS)
     --verbose              Enable verbose output
     --log-file            Log operations to file
     --help                Show this help message
@@ -437,6 +538,10 @@ EXAMPLES:
         $0 --domain-audit               # Domain audit and cleanup
         $0 --system-health              # System health check
         $0 --deep-cleanup               # Complete cleanup with cache
+    
+    Custom Retention Examples:
+        $0 --media-days 60 --maintenance    # Custom media retention
+        $0 --preview-cards-days 15 --maintenance  # Custom preview cards retention
 
 EOF
 }
@@ -536,7 +641,7 @@ purge_domains() {
             cmd_args+=(--include-subdomains)
         fi
         
-        if safe_execute "Purge domain: $domain_name" 300 "${cmd_args[@]}"; then
+        if safe_execute "Purge domain: $domain_name" "${cmd_args[@]}"; then
             ((processed_count++))
         else
             ((error_count++))
@@ -551,7 +656,7 @@ purge_domains() {
 cull_accounts() {
     print_header "Culling Non-existent Accounts"
     
-    safe_execute "Cull non-existent accounts" 300 \
+    safe_execute "Cull non-existent accounts" \
         stdbuf -oL tootctl accounts cull
 }
 
@@ -559,7 +664,7 @@ cull_accounts() {
 prune_accounts() {
     print_header "Pruning Non-interactive Accounts"
     
-    safe_execute "Prune non-interactive accounts" 300 \
+    safe_execute "Prune non-interactive accounts" \
         stdbuf -oL tootctl accounts prune
 }
 
@@ -567,7 +672,7 @@ prune_accounts() {
 remove_old_media() {
     print_header "Removing Old Media Files"
     
-    safe_execute "Remove media files older than $MEDIA_DAYS days" 300 \
+    safe_execute "Remove media files older than $MEDIA_DAYS days" \
         stdbuf -oL tootctl media remove \
         --days "$MEDIA_DAYS" \
         --concurrency "$CONCURRENCY"
@@ -577,7 +682,7 @@ remove_old_media() {
 remove_old_profile_media() {
     print_header "Removing Old Profile Media"
     
-    safe_execute "Remove profile media older than $PROFILE_MEDIA_DAYS days" 300 \
+    safe_execute "Remove profile media older than $PROFILE_MEDIA_DAYS days" \
         stdbuf -oL tootctl media remove \
         --prune-profiles \
         --days "$PROFILE_MEDIA_DAYS" \
@@ -588,7 +693,7 @@ remove_old_profile_media() {
 remove_old_preview_cards() {
     print_header "Removing Old Preview Cards"
     
-    safe_execute "Remove preview cards older than $PREVIEW_CARDS_DAYS days" 300 \
+    safe_execute "Remove preview cards older than $PREVIEW_CARDS_DAYS days" \
         stdbuf -oL tootctl preview_cards remove \
         --days "$PREVIEW_CARDS_DAYS" \
         --concurrency "$CONCURRENCY"
@@ -598,7 +703,7 @@ remove_old_preview_cards() {
 remove_old_remote_statuses() {
     print_header "Removing Old Remote Statuses"
     
-    safe_execute "Remove remote statuses older than $STATUSES_DAYS days" 300 \
+    safe_execute "Remove remote statuses older than $STATUSES_DAYS days" \
         stdbuf -oL tootctl statuses remove \
         --days "$STATUSES_DAYS"
 }
@@ -607,7 +712,7 @@ remove_old_remote_statuses() {
 remove_orphaned_media() {
     print_header "Removing Orphaned Media"
     
-    safe_execute "Remove orphaned media files" 300 \
+    safe_execute "Remove orphaned media files" \
         stdbuf -oL tootctl media remove-orphans
 }
 
@@ -617,7 +722,7 @@ build_feeds() {
     
     print_info "This operation is expensive but useful for feed fixing"
     
-    safe_execute "Build all feeds" 600 \
+    safe_execute "Build all feeds" \
         stdbuf -oL tootctl feeds build \
         --all \
         --concurrency "$CONCURRENCY"
@@ -633,7 +738,7 @@ list_inactive_accounts() {
     
     print_info "This will show accounts that haven't been active recently"
     
-    safe_execute "List inactive accounts" 300 \
+    safe_execute "List inactive accounts" \
         stdbuf -oL tootctl accounts list --inactive
 }
 
@@ -643,7 +748,7 @@ delete_inactive_accounts() {
     
     print_warning "This will permanently delete inactive accounts"
     
-    safe_execute "Delete inactive accounts" 300 \
+    safe_execute "Delete inactive accounts" \
         stdbuf -oL tootctl accounts delete --inactive
 }
 
@@ -653,7 +758,7 @@ media_stats() {
     
     print_info "Showing media storage statistics"
     
-    safe_execute "Media statistics" 300 \
+    safe_execute "Media statistics" \
         stdbuf -oL tootctl media stats
 }
 
@@ -663,7 +768,7 @@ list_orphaned_media() {
     
     print_info "This will show orphaned media files before removal"
     
-    safe_execute "List orphaned media" 300 \
+    safe_execute "List orphaned media" \
         stdbuf -oL tootctl media list-orphans
 }
 
@@ -673,7 +778,7 @@ list_domain_blocks() {
     
     print_info "Showing current domain blocks"
     
-    safe_execute "List domain blocks" 300 \
+    safe_execute "List domain blocks" \
         stdbuf -oL tootctl domains list
 }
 
@@ -683,7 +788,7 @@ check_domain_health() {
     
     print_info "Testing connectivity to blocked domains"
     
-    safe_execute "Check domain health" 300 \
+    safe_execute "Check domain health" \
         stdbuf -oL tootctl domains check
 }
 
@@ -693,8 +798,8 @@ system_info() {
     
     print_info "Showing system information and health"
     
-    safe_execute "System information" 300 \
-        stdbuf -oL tootctl system info
+    safe_execute "System information" \
+        stdbuf -oL tootctl info
 }
 
 # System statistics
@@ -703,8 +808,8 @@ system_stats() {
     
     print_info "Showing instance statistics and usage"
     
-    safe_execute "System statistics" 300 \
-        stdbuf -oL tootctl system stats
+    safe_execute "System statistics" \
+        stdbuf -oL tootctl stats
 }
 
 # Queue status
@@ -713,8 +818,8 @@ queue_status() {
     
     print_info "Checking background job queue status"
     
-    safe_execute "Queue status" 300 \
-        stdbuf -oL tootctl queue status
+    safe_execute "Queue status" \
+        stdbuf -oL tootctl queue
 }
 
 # Cache clear
@@ -723,78 +828,63 @@ cache_clear() {
     
     print_info "Clearing Redis cache (safe operation)"
     
-    safe_execute "Clear cache" 300 \
+    safe_execute "Clear cache" \
         stdbuf -oL tootctl cache clear
 }
 
-# Execute a specific operation
-execute_operation() {
-    local operation="$1"
-    
-    case $operation in
-        export_domain_blocks) 
-            export_domain_blocks 
+# Execute the selected operation
+execute_selected_operation() {
+    case "$SELECTED_OPERATION" in
+        domains) 
+            run_domains 
             ;;
-        purge_domains) 
-            purge_domains 
+        accounts) 
+            run_accounts 
             ;;
-        cull_accounts) 
-            cull_accounts 
+        media) 
+            run_media 
             ;;
-        prune_accounts) 
-            prune_accounts 
+        profile-media) 
+            run_profile_media 
             ;;
-        remove_old_media) 
-            remove_old_media 
+        preview-cards) 
+            run_preview_cards 
             ;;
-        remove_old_profile_media) 
-            remove_old_profile_media 
+        remote-statuses) 
+            run_remote_statuses 
             ;;
-        remove_old_preview_cards) 
-            remove_old_preview_cards 
+        orphaned-media) 
+            run_orphaned_media 
             ;;
-        remove_old_remote_statuses) 
-            remove_old_remote_statuses 
+        feeds) 
+            run_feeds 
             ;;
-        remove_orphaned_media) 
-            remove_orphaned_media 
+        all-media) 
+            run_all_media 
             ;;
-        build_feeds) 
-            build_feeds 
+        maintenance) 
+            run_maintenance 
             ;;
-        # Enhanced maintenance operations
-        list_inactive_accounts) 
-            list_inactive_accounts 
+        full) 
+            run_full 
             ;;
-        delete_inactive_accounts) 
-            delete_inactive_accounts 
+        account-cleanup) 
+            run_account_cleanup 
             ;;
-        media_stats) 
-            media_stats 
+        media-audit) 
+            run_media_audit 
             ;;
-        list_orphaned_media) 
-            list_orphaned_media 
+        domain-audit) 
+            run_domain_audit 
             ;;
-        list_domain_blocks) 
-            list_domain_blocks 
+        system-health) 
+            run_system_health 
             ;;
-        check_domain_health) 
-            check_domain_health 
-            ;;
-        system_info) 
-            system_info 
-            ;;
-        system_stats) 
-            system_stats 
-            ;;
-        queue_status) 
-            queue_status 
-            ;;
-        cache_clear) 
-            cache_clear 
+        deep-cleanup) 
+            run_deep_cleanup 
             ;;
         *) 
-            print_error "Unknown operation: $operation" 
+            print_error "Unknown operation: $SELECTED_OPERATION" 
             return 1 
             ;;
     esac
@@ -826,92 +916,34 @@ main() {
     print_info "Dry run mode: $DRY_RUN"
     print_info "Include subdomains: $INCLUDE_SUBDOMAINS"
     print_info "Concurrency: $CONCURRENCY"
+    print_info "Media retention: $MEDIA_DAYS days"
+    print_info "Profile media retention: $PROFILE_MEDIA_DAYS days"
+    print_info "Preview cards retention: $PREVIEW_CARDS_DAYS days"
+    print_info "Remote statuses retention: $STATUSES_DAYS days"
     print_info "Verbose mode: $VERBOSE"
     print_info "Log to file: $LOG_TO_FILE"
     
-    if [[ "$RUN_ALL_OPERATIONS" == "true" ]]; then
-        print_info "Running all operations"
-    else
-        print_info "Running selected operations: ${SELECTED_OPERATIONS[*]}"
-        print_info "Selected operations count: ${#SELECTED_OPERATIONS[@]}"
-        for i in "${!SELECTED_OPERATIONS[@]}"; do
-            print_info "  [$i]: ${SELECTED_OPERATIONS[$i]}"
-        done
-        
-        if [[ ${#SELECTED_OPERATIONS[@]} -eq 0 ]]; then
-            print_warning "No operations selected. Use --help to see available operations."
-            exit 0
-        fi
+    if [[ -z "$SELECTED_OPERATION" ]]; then
+        print_warning "No operation selected. Use --help to see available operations."
+        exit 0
     fi
     
-    # Execute cleanup operations
-    local operation_count=0
-    local error_count=0
-    local executed_operations=()
+    print_info "Executing operation: $SELECTED_OPERATION"
     
-    # Define all operations in logical order
-    local all_operations=(
-        # Domain operations
-        export_domain_blocks
-        purge_domains
-        list_domain_blocks
-        check_domain_health
-        # Account operations
-        cull_accounts
-        prune_accounts
-        list_inactive_accounts
-        delete_inactive_accounts
-        # Media operations
-        remove_old_media
-        remove_old_profile_media
-        remove_old_preview_cards
-        remove_old_remote_statuses
-        remove_orphaned_media
-        media_stats
-        list_orphaned_media
-        # System operations
-        build_feeds
-        system_info
-        system_stats
-        queue_status
-        cache_clear
-    )
-    
-    print_info "Starting execution of ${#all_operations[@]} total operations"
-    
-    for operation in "${all_operations[@]}"; do
-        if should_run_operation "$operation"; then
-            ((operation_count++))
-            print_header "Operation: $operation"
-            
-            if execute_operation "$operation"; then
-                executed_operations+=("$operation")
-            else
-                ((error_count++))
-                print_error "Operation $operation failed"
-            fi
-        else
-            print_info "Skipping operation: $operation (not in selected operations)"
-        fi
-    done
-    
-    print_info "Main execution loop completed"
+    # Execute the selected operation
+    if execute_selected_operation; then
+        print_success "Operation '$SELECTED_OPERATION' completed successfully!"
+    else
+        print_error "Operation '$SELECTED_OPERATION' failed"
+        exit 1
+    fi
     
     # Final summary
     print_header "Cleanup Process Complete"
-    print_info "Total operations executed: $operation_count"
-    print_info "Successful operations: $((operation_count - error_count))"
-    print_info "Failed operations: $error_count"
-    print_info "Executed operations: ${executed_operations[*]}"
+    print_info "Operation: $SELECTED_OPERATION"
     print_info "Completed at: $(date)"
-    
-    if [[ $error_count -gt 0 ]]; then
-        print_warning "Some operations failed. Check the output above for details."
-        exit 1
-    else
-        print_success "All cleanup operations completed successfully!"
-        exit 0
-    fi
+    print_success "Cleanup completed successfully!"
+    exit 0
 }
 
 # Execute main function with all arguments
