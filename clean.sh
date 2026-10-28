@@ -1300,7 +1300,11 @@ acquire_lock() {
     fi
 
     export MM_LOCKED=1
-    exec flock -n "$LOCKFILE" "$0" "$@"
+    exec 9>"$LOCKFILE"
+    if ! flock -n 9; then
+        print_error "Another run is already in progress (lock: $LOCKFILE)"
+        exit 1
+    fi
 }
 
 main() {
