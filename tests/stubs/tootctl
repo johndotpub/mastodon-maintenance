@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Stub `tootctl` for Bats tests. MM_STUB_FAIL holds a space-separated list of
-# substrings; a matching invocation exits 1.
+# Stub `tootctl` for Bats tests.
+#
+# MM_STUB_FAIL holds newline-separated substrings; a matching invocation exits 1.
+# Newline separation (not spaces) is required because command patterns contain
+# spaces, e.g. "accounts prune".
 echo "stub-tootctl: $*"
 if [[ -n "${MM_STUB_FAIL:-}" ]]; then
-    for pat in $MM_STUB_FAIL; do
+    while IFS= read -r pat; do
+        [[ -z "$pat" ]] && continue
         case "$*" in
             *"$pat"*) echo "stub-tootctl: simulated failure on '$pat'" >&2; exit 1 ;;
         esac
-    done
+    done <<< "$MM_STUB_FAIL"
 fi
 exit 0

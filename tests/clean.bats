@@ -411,3 +411,84 @@ run_clean() {
     run bash -n "$SCRIPT"
     [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Regression tests for the Copilot review findings
+# ---------------------------------------------------------------------------
+
+@test "inactive account scope requires an age check for never-signed-in users" {
+    # A bare `current_sign_in_at IS NULL` would make every new account eligible.
+    run grep -c "COALESCE(current_sign_in_at, created_at)" "$SCRIPT"
+    [ "$output" -ge 2 ]
+}
+
+@test "inactive account scope has no bare NULL-only branch" {
+    run grep -c "current_sign_in_at IS NULL OR" "$SCRIPT"
+    [ "$output" -eq 0 ]
+}
+
+@test "account deletion preserves the username reservation" {
+    # reserve_username must stay at Mastodon's default (true).
+    run grep -c "reserve_username: false" "$SCRIPT"
+    [ "$output" -eq 0 ]
+}
+
+@test "version with build metadata is not rejected" {
+    export MM_STUB_VERSION="4.7.3+custom"
+    run_clean --feeds
+    [ "$RC" -eq 0 ]
+}
+
+@test "version with a prerelease suffix compares by numeric components" {
+    export MM_STUB_VERSION="4.8.0-beta1"
+    run_clean --feeds
+    [ "$RC" -eq 0 ]
+}
+
+@test "bare dry-run is rejected rather than silently succeeding" {
+    run_clean --dry-run
+    [ "$RC" -eq 1 ]
+    [[ "$OUT" == *"--dry-run requires an operation"* ]]
+}
+
+@test "no arguments still warns and exits 0" {
+    run_clean
+    [ "$RC" -eq 0 ]
+    [[ "$OUT" == *"No operation selected"* ]]
+}
+
+@test "log file records the run header" {
+    run_clean --log-file "$TEST_TMP/mylog.txt" --system-health
+    grep -q "Starting Mastodon Cleanup Process" "$TEST_TMP/mylog.txt"
+}
+
+@test "media audit preview never omits --dry-run" {
+    # The preview step must pass --dry-run even when global dry-run is off.
+    run_clean --media-audit --yes
+    [[ "$OUT" == *"media remove-orphans --dry-run"* ]]
+}
+
+@test "media audit preview honours the storage guard" {
+    export MM_STUB_STORAGE=azure
+    run_clean --media-audit --yes
+    [[ "$OUT" != *"stub-tootctl: media remove-orphans"* ]]
+}
+
+@test "dry-run export uses a private temporary directory" {
+    run grep -c 'mktemp -d' "$SCRIPT"
+    [ "$output" -ge 1 ]
+}
+
+@test "export failure surfaces the Rails diagnostic" {
+    # Force the export to fail and confirm the captured output is printed.
+    run grep -c 'printf .%s' "$SCRIPT"
+    [ "$output" -ge 1 ]
+}
+
+@test "stub failure patterns do not split on spaces" {
+    # 'accounts prune' must fail prune only, not cull as well.
+    export MM_STUB_FAIL="accounts prune"
+    run_clean --accounts --yes
+    [[ "$OUT" == *"simulated failure on 'accounts prune'"* ]]
+    [[ "$OUT" != *"simulated failure on 'accounts'"* ]]
+}

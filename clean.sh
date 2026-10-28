@@ -165,14 +165,21 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 is_numeric() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
 # Version comparison: returns 0 if $1 >= $2
+# Mastodon::Version.to_s can append a prerelease and/or build metadata
+# (e.g. "4.7.3+custom", "4.8.0-beta1"), which would otherwise be evaluated as
+# identifiers in arithmetic context and abort under `set -u`. Strip suffixes and
+# coerce every component to a number before comparing.
 version_ge() {
-    local v1="$1" v2="$2"
+    local v1="${1%%[-+]*}" v2="${2%%[-+]*}"
     local -a a b
     IFS=. read -r -a a <<< "$v1"
     IFS=. read -r -a b <<< "$v2"
-    local i
+    local i x y
     for i in 0 1 2; do
-        local x="${a[$i]:-0}" y="${b[$i]:-0}"
+        x="${a[$i]:-0}"
+        y="${b[$i]:-0}"
+        [[ "$x" =~ ^[0-9]+$ ]] || x=0
+        [[ "$y" =~ ^[0-9]+$ ]] || y=0
         if ((x > y)); then return 0; fi
         if ((x < y)); then return 1; fi
     done
@@ -644,6 +651,10 @@ export_domain_blocks() {
         print domains.size
     " 2>&1 </dev/null) || {
         print_error "Failed to export domain blocks"
+        # Surface the Rails diagnostic; otherwise SQL/permission errors are lost.
+        if [[ -n "$count" ]]; then
+            printf '%s\n' "$count" >&2
+        fi
         return 1
     }
     print_info "Exported $count domain(s)"
@@ -810,7 +821,15 @@ remove_old_remote_statuses() {
 }
 
 remove_orphaned_media() {
-    print_header "Removing Orphaned Media"
+    # First argument "preview" forces a dry run and skips the confirmation gate.
+    # Used by --media-audit so the listing step cannot delete anything.
+    local mode="${1:-confirm}"
+
+    if [[ "$mode" == "preview" ]]; then
+        print_header "Previewing Orphaned Media"
+    else
+        print_header "Removing Orphaned Media"
+    fi
 
     # remove-orphans only implements :s3 and :filesystem; :fog and :azure fail
     # hard. Detect the driver first rather than breaking composite operations.
@@ -835,6 +854,17 @@ remove_orphaned_media() {
             return 0
             ;;
     esac
+
+    if [[ "$mode" == "preview" ]]; then
+        # Force the preview regardless of the global dry-run setting.
+        local prev_dry="$DRY_RUN"
+        DRY_RUN=true
+        run_native_dry_run "Preview orphaned media" \
+            "${STDBUF[@]}" tootctl media remove-orphans
+        local rc=$?
+        DRY_RUN="$prev_dry"
+        return $rc
+    fi
 
     if ! confirm_destructive "delete orphaned media files"; then
         return 1
@@ -896,7 +926,10 @@ list_inactive_accounts() {
     local output=""
     output=$(rails runner "
         cutoff = $INACTIVE_DAYS.days.ago
-        scope  = User.where('current_sign_in_at IS NULL OR current_sign_in_at < ?', cutoff)
+        # COALESCE: a never-signed-in account must still be older than the cutoff.
+        # Without this, every account that has not yet logged in is eligible
+        # regardless of when it registered.
+        scope  = User.where('COALESCE(current_sign_in_at, created_at) < ?', cutoff)
         scope  = scope.where(disabled: false).includes(:account)
         count  = 0
         scope.find_each do |u|
@@ -929,14 +962,17 @@ delete_inactive_accounts() {
     output=$(rails runner "
         cutoff = $INACTIVE_DAYS.days.ago
         dry    = ($dry)
-        scope  = User.where('current_sign_in_at IS NULL OR current_sign_in_at < ?', cutoff)
+        scope  = User.where('COALESCE(current_sign_in_at, created_at) < ?', cutoff)
         scope  = scope.where(disabled: false).includes(:account)
         count  = 0
         scope.find_each do |u|
             next if u.account.nil?
             puts \"#{dry ? '[DRY RUN] would delete' : 'Deleting'} #{u.account.acct}\"
             unless dry
-              DeleteAccountService.new.call(u.account, reserve_email: false, reserve_username: false)
+              # reserve_username is left at its default (true) so the local
+              # handle is not released for reuse; Mastodon's own accounts delete
+              # command behaves the same way.
+              DeleteAccountService.new.call(u.account, reserve_email: false)
             end
             count += 1
         end
@@ -959,11 +995,10 @@ media_stats() {
 }
 
 list_orphaned_media() {
-    print_header "Listing Orphaned Media"
     # `media list-orphans` does not exist. remove-orphans --dry-run is the
-    # supported preview and reports exactly what would be deleted.
-    run_native_dry_run "Preview orphaned media" \
-        "${STDBUF[@]}" tootctl media remove-orphans
+    # supported preview, and it must reuse remove_orphaned_media so the storage
+    # guard applies and nothing is deleted when the caller is not a dry run.
+    remove_orphaned_media preview
 }
 
 list_domain_blocks() {
@@ -1274,6 +1309,12 @@ main() {
     # Parse first: logging, verbosity and the operation all come from arguments.
     parse_arguments "$@"
 
+    # Acquire the run lock BEFORE touching the log file: a second invocation
+    # would otherwise truncate the active run's diagnostics before flock rejects it.
+    if [[ -n "$SELECTED_OPERATION" ]]; then
+        acquire_lock "$@"
+    fi
+
     if [[ "$LOG_TO_FILE" == "true" ]]; then
         echo "=== $SCRIPT_NAME v$SCRIPT_VERSION - $(date) ===" > "$LOG_FILE"
     fi
@@ -1282,17 +1323,16 @@ main() {
     print_info "Script version: $SCRIPT_VERSION"
     print_info "Started at: $(date)"
 
-    if [[ -n "$SELECTED_OPERATION" ]]; then
-        acquire_lock "$@"
-    fi
-
     validate_configuration || exit 1
 
-    # During a dry run, export to a temporary file so the preview works without
-    # touching the operator's existing export.
+    # During a dry run, export into a private temporary directory so the preview
+    # works without touching the operator's existing export. mktemp -d gives a
+    # 0700 directory, which avoids both a predictable path and a world-readable
+    # blocklist under a permissive umask.
     if [[ "$DRY_RUN" == "true" ]]; then
-        DOMAIN_BLOCKS_FILE="${TMPDIR:-/tmp}/mm-domain-blocks.$$.${RANDOM}"
-        trap 'rm -f -- "$DOMAIN_BLOCKS_FILE"' EXIT
+        MM_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/mm-dryrun.XXXXXX")"
+        DOMAIN_BLOCKS_FILE="$MM_TMPDIR/domain_blocks.txt"
+        trap 'rm -rf -- "$MM_TMPDIR"' EXIT
     fi
 
     check_prerequisites
@@ -1313,6 +1353,14 @@ main() {
     print_info "Log to file:           ${LOG_TO_FILE}${LOG_FILE:+ ($LOG_FILE)}"
 
     if [[ -z "$SELECTED_OPERATION" ]]; then
+        # A bare --dry-run is an attempt to preview something; make it an error
+        # rather than silently succeeding. A plain invocation with no flags is
+        # still just a warning, since "what do I do?" is a reasonable question.
+        if [[ "$DRY_RUN" == "true" ]]; then
+            print_error "--dry-run requires an operation."
+            print_error "Example: $0 --dry-run --full"
+            exit 1
+        fi
         print_warning "No operation selected. Use --help to see available operations."
         exit 0
     fi
