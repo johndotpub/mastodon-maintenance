@@ -1289,22 +1289,30 @@ preflight_informational() {
 }
 
 # Serialise runs so two overlapping cron jobs cannot purge concurrently.
+# Pure bash: `set -C` (noclobber) makes the redirection an atomic O_EXCL create,
+# so no external binary is spawned.
 acquire_lock() {
     if [[ -n "${MM_LOCKED:-}" ]]; then
         return 0
     fi
 
-    if ! command_exists flock; then
-        print_warning "flock not available; proceeding without a run lock"
+    local had_noclobber=false
+    [[ -o noclobber ]] && had_noclobber=true
+
+    set -C
+    if { : > "$LOCKFILE"; } 2>/dev/null; then
+        [[ "$had_noclobber" == "true" ]] || set +C
+        printf '%s\n' "$$" > "$LOCKFILE"
+        export MM_LOCKED=1
+        trap 'rm -f -- "$LOCKFILE"' EXIT
         return 0
     fi
+    [[ "$had_noclobber" == "true" ]] || set +C
 
-    export MM_LOCKED=1
-    exec 9>"$LOCKFILE"
-    if ! flock -n 9; then
-        print_error "Another run is already in progress (lock: $LOCKFILE)"
-        exit 1
-    fi
+    local holder=""
+    IFS= read -r holder < "$LOCKFILE" 2>/dev/null || true
+    print_error "Another run is already in progress (lock: $LOCKFILE${holder:+, pid $holder})"
+    exit 1
 }
 
 main() {
