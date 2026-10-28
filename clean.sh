@@ -87,7 +87,7 @@ readonly DEFAULT_PREVIEW_CARDS_DAYS=30
 readonly DEFAULT_STATUSES_DAYS=30
 readonly DEFAULT_INACTIVE_DAYS=365
 readonly DEFAULT_DOMAIN_BATCH=25
-readonly DOMAIN_BLOCKS_FILE="domain_blocks.txt"
+DOMAIN_BLOCKS_FILE="domain_blocks.txt"
 readonly LOCKFILE="${TMPDIR:-/tmp}/mastodon-maintenance.lock"
 
 # =============================================================================
@@ -112,8 +112,6 @@ LOG_FILE=""
 SELECTED_OPERATION=""
 
 # Step accounting. Every operation reports its own result; nothing is inferred.
-STEP_OK=0
-STEP_FAILED=0
 
 # stdbuf is optional. When present it makes tootctl output unbuffered; when
 # absent we simply run the command directly rather than failing at 127.
@@ -168,8 +166,10 @@ is_numeric() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
 # Version comparison: returns 0 if $1 >= $2
 version_ge() {
-    local IFS=.
-    local -a a=($1) b=($2)
+    local v1="$1" v2="$2"
+    local -a a b
+    IFS=. read -r -a a <<< "$v1"
+    IFS=. read -r -a b <<< "$v2"
     local i
     for i in 0 1 2; do
         local x="${a[$i]:-0}" y="${b[$i]:-0}"
@@ -331,6 +331,7 @@ check_prerequisites() {
     if [[ -z "${RAILS_ENV:-}" ]]; then
         export RAILS_ENV="production"
         print_info "RAILS_ENV not set; defaulting to production"
+        print_info "RAILS_ENV: $RAILS_ENV"
     else
         print_info "RAILS_ENV: $RAILS_ENV"
     fi
@@ -360,8 +361,8 @@ check_prerequisites() {
             print_error "This script uses flags that do not exist on older releases."
             exit 1
         fi
-        if ! version_ge "$detected" "$TESTED_MASTODON_VERSION"; then
-            print_warning "This release is newer than the tested version $TESTED_MASTODON_VERSION; verify flags before automating."
+        if version_ge "$detected" "$TESTED_MASTODON_VERSION" && [[ "$detected" != "$TESTED_MASTODON_VERSION" ]]; then
+            print_warning "Mastodon $detected is newer than the tested version $TESTED_MASTODON_VERSION; verify flags before automating."
         fi
     fi
 
@@ -626,12 +627,9 @@ parse_arguments() {
 export_domain_blocks() {
     local description="Export domain blocks to $DOMAIN_BLOCKS_FILE"
 
-    if [[ "$DRY_RUN" == "true" ]]; then
-        print_warning "DRY RUN: skipped (writes $DOMAIN_BLOCKS_FILE): $description"
-        return 0
-    fi
-
     # Only remove the previous export once we are committed to rewriting it.
+    # During a dry run DOMAIN_BLOCKS_FILE points at a temporary path, so the
+    # operator's existing export is never touched.
     if [[ -f "$DOMAIN_BLOCKS_FILE" ]]; then
         print_info "Replacing existing $DOMAIN_BLOCKS_FILE"
         rm -f -- "$DOMAIN_BLOCKS_FILE"
@@ -648,6 +646,7 @@ export_domain_blocks() {
         print_error "Failed to export domain blocks"
         return 1
     }
+    print_info "Exported $count domain(s)"
 
     if [[ ! -f "$DOMAIN_BLOCKS_FILE" ]]; then
         print_error "Domain blocks file was not created"
@@ -1288,6 +1287,13 @@ main() {
     fi
 
     validate_configuration || exit 1
+
+    # During a dry run, export to a temporary file so the preview works without
+    # touching the operator's existing export.
+    if [[ "$DRY_RUN" == "true" ]]; then
+        DOMAIN_BLOCKS_FILE="${TMPDIR:-/tmp}/mm-domain-blocks.$$.${RANDOM}"
+        trap 'rm -f -- "$DOMAIN_BLOCKS_FILE"' EXIT
+    fi
 
     check_prerequisites
 

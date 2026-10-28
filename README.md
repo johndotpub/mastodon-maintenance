@@ -290,8 +290,14 @@ Before submitting:
 
 ```bash
 bash -n clean.sh            # syntax check
+shellcheck clean.sh         # lint
+bats tests/                 # full test suite (no Mastodon required)
 ./clean.sh --help           # smoke test outside an install
 ```
+
+The test suite uses stubbed `rails` and `tootctl` binaries under `tests/stubs/`,
+so it runs anywhere. CI runs ShellCheck, the Bats suite, and documentation
+consistency checks on every push and pull request.
 
 Changes to any `tootctl` invocation must be verified against the Mastodon source
 at the supported version, not against the documentation alone.

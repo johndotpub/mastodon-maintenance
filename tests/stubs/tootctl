@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Stub `tootctl` for Bats tests. MM_STUB_FAIL holds a space-separated list of
+# substrings; a matching invocation exits 1.
+echo "stub-tootctl: $*"
+if [[ -n "${MM_STUB_FAIL:-}" ]]; then
+    for pat in $MM_STUB_FAIL; do
+        case "$*" in
+            *"$pat"*) echo "stub-tootctl: simulated failure on '$pat'" >&2; exit 1 ;;
+        esac
+    done
+fi
+exit 0

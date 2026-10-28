@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Bash version
+        run: bash --version | head -1
+
+      - name: Syntax check
+        run: bash -n clean.sh
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './clean.sh'
+          additional_files: 'tests/stubs/rails tests/stubs/tootctl'
+          severity: warning
+
+  test:
+    name: Bats
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+          bats --version
+
+      - name: Install flock and stdbuf
+        run: |
+          sudo apt-get install -y util-linux coreutils
+
+      - name: Make scripts executable
+        run: chmod +x clean.sh tests/stubs/*
+
+      - name: Run test suite
+        run: bats --print-output-on-failure tests/
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify README code fences are balanced
+        run: |
+          count=$(grep -c '^```' README.md || true)
+          echo "fence markers: $count"
+          if [ $((count % 2)) -ne 0 ]; then
+            echo "::error::README.md has an unbalanced code fence ($count markers)"
+            exit 1
+          fi
+
+      - name: Verify version strings agree
+        run: |
+          script_version=$(sed -n 's/^readonly SCRIPT_VERSION="\(.*\)"/\1/p' clean.sh)
+          readme_version=$(sed -n 's/^### v\([0-9.]*\).*/\1/p' README.md | head -1)
+          changelog_version=$(sed -n 's/^## \[\([0-9.]*\)\].*/\1/p' CHANGELOG.md | head -1)
+          echo "clean.sh:  $script_version"
+          echo "README:    $readme_version"
+          echo "CHANGELOG: $changelog_version"
+          if [ "$script_version" != "$readme_version" ] || [ "$script_version" != "$changelog_version" ]; then
+            echo "::error::Version mismatch between clean.sh, README.md and CHANGELOG.md"
+            exit 1
+          fi
+
+      - name: Verify documented flags exist in the script
+        run: |
+          fail=0
+          for flag in \
+            --dry-run --yes --include-subdomains --purge-domain-blocks \
+            --no-keep-interacted --concurrency --media-days \
+            --profile-media-days --preview-cards-days --statuses-days \
+            --inactive-days --domain-batch --verbose --log-file \
+            --help --version --list-operations
+          do
+            if ! grep -q -- "$flag" clean.sh; then
+              echo "::error::Documented flag missing from clean.sh: $flag"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Verify minimum Mastodon version is stated consistently
+        run: |
+          script_min=$(sed -n 's/^readonly MIN_MASTODON_VERSION="\(.*\)"/\1/p' clean.sh)
+          echo "clean.sh minimum: $script_min"
+          if ! grep -q "$script_min" README.md; then
+            echo "::error::README.md does not mention the minimum version $script_min"
+            exit 1
+          fi

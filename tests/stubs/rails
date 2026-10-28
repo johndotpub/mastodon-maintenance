@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Stub `rails` for Bats tests. Honours the domain export path clean.sh passes
+# rather than hardcoding a filename.
+code="${2:-}"
+case "$code" in
+  *"Mastodon::Version.to_s"*) echo "${MM_STUB_VERSION:-4.7.3}"; exit 0 ;;
+  *"puts 'ok'"*)              echo "ok"; exit 0 ;;
+  *"Paperclip"*)              echo "${MM_STUB_STORAGE:-filesystem}"; exit 0 ;;
+  *"ES_ENABLED"*)             echo "${MM_STUB_ES:-false}"; exit 0 ;;
+  *"DomainBlock.order(:domain).pluck"*)
+      # The Ruby snippet contains: File.open('<path>', 'w')
+      path=$(printf '%s' "$code" | sed -n "s/.*File.open('\([^']*\)'.*/\1/p")
+      [[ -z "$path" ]] && path="domain_blocks.txt"
+      printf 'bad.example\ngood.example\n' > "$path"
+      echo "2"
+      exit 0 ;;
+  *"DomainBlock.order(:severity"*)
+      echo "DOMAIN                                   SEVERITY"
+      echo "bad.example                              suspend"
+      echo "Total: 1"; exit 0 ;;
+  *"current_sign_in_at"*)
+      echo "alice                         2020-01-01 00:00:00 UTC"
+      echo "Total inactive: 1"; exit 0 ;;
+  *"Sidekiq"*)     echo "Queue Status:"; echo "Sidekiq processes: 2"; exit 0 ;;
+  *"Rails.cache"*) echo "Cache Status:"; echo "Redis connected: true"; echo "Cache keys:      42"; exit 0 ;;
+  *) exit 0 ;;
+esac
