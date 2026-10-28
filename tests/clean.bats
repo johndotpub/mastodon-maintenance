@@ -11,7 +11,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-    SCRIPT="$REPO_ROOT/clean.sh"
+    SCRIPT="${MM_SCRIPT:-$REPO_ROOT/clean.sh}"
     STUBS="$BATS_TEST_DIRNAME/stubs"
 
     TEST_TMP="$(mktemp -d)"
@@ -113,6 +113,66 @@ run_clean() {
     export MM_STUB_FAIL="feeds build"
     run_clean --feeds
     [ "$RC" -eq 1 ]
+}
+
+@test "--accounts propagates a cull failure" {
+    export MM_STUB_FAIL="accounts cull"
+    run_clean --accounts --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--accounts propagates a prune failure" {
+    export MM_STUB_FAIL="accounts prune"
+    run_clean --accounts --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--all-media propagates a failure" {
+    export MM_STUB_FAIL="preview_cards remove"
+    run_clean --all-media --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--media-audit propagates a failure" {
+    export MM_STUB_FAIL="media remove"
+    run_clean --media-audit --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--account-cleanup propagates a failure" {
+    export MM_STUB_FAIL="accounts prune"
+    run_clean --account-cleanup --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--domain-audit propagates a purge failure" {
+    export MM_STUB_FAIL="domains purge"
+    run_clean --domain-audit --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--full propagates a failure" {
+    export MM_STUB_FAIL="feeds build"
+    run_clean --full --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--maintenance propagates a failure in its last step" {
+    export MM_STUB_FAIL="feeds build"
+    run_clean --maintenance --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "--maintenance propagates a failure in its first step" {
+    export MM_STUB_FAIL="accounts cull"
+    run_clean --maintenance --yes
+    [ "$RC" -eq 1 ]
+}
+
+@test "a failing step does not stop later steps from running" {
+    export MM_STUB_FAIL="accounts cull"
+    run_clean --maintenance --yes
+    [[ "$OUT" == *"feeds build"* ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -236,6 +296,19 @@ run_clean() {
     [[ "$OUT" == *"is not supported by tootctl media remove-orphans"* ]]
 }
 
+@test "unsupported storage driver never invokes remove-orphans" {
+    export MM_STUB_STORAGE=azure
+    run_clean --orphaned-media --yes
+    [[ "$OUT" != *"stub-tootctl: media remove-orphans"* ]]
+}
+
+@test "fog storage driver is skipped" {
+    export MM_STUB_STORAGE=fog
+    run_clean --orphaned-media --yes
+    [ "$RC" -eq 0 ]
+    [[ "$OUT" != *"stub-tootctl: media remove-orphans"* ]]
+}
+
 @test "filesystem storage proceeds with orphan removal" {
     export MM_STUB_STORAGE=filesystem
     run_clean --orphaned-media --yes
@@ -315,6 +388,18 @@ run_clean() {
 @test "counters do not abort under set -e" {
     run_clean --domains --yes --dry-run
     [ "$RC" -eq 0 ]
+}
+
+@test "a single-domain batch still counts correctly" {
+    run_clean --domain-batch 1 --domains --yes --dry-run
+    [ "$RC" -eq 0 ]
+    [[ "$OUT" == *"2 processed"* ]]
+}
+
+@test "help wins over an invalid flag" {
+    run_clean --not-a-flag --help
+    [ "$RC" -eq 0 ]
+    [[ "$OUT" == *"Usage:"* ]]
 }
 
 @test "RAILS_ENV defaults to production" {

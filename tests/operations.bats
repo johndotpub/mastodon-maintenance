@@ -7,7 +7,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-    SCRIPT="$REPO_ROOT/clean.sh"
+    SCRIPT="${MM_SCRIPT:-$REPO_ROOT/clean.sh}"
     STUBS="$BATS_TEST_DIRNAME/stubs"
 
     TEST_TMP="$(mktemp -d)"
