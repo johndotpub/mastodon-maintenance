@@ -89,6 +89,7 @@ readonly DEFAULT_INACTIVE_DAYS=365
 readonly DEFAULT_DOMAIN_BATCH=25
 DOMAIN_BLOCKS_FILE="domain_blocks.txt"
 readonly LOCKFILE="${TMPDIR:-/tmp}/mastodon-maintenance.lock"
+unset MM_LOCK_CREATED
 
 # =============================================================================
 # Global state
@@ -1291,6 +1292,15 @@ preflight_informational() {
 # Serialise runs so two overlapping cron jobs cannot purge concurrently.
 # Pure bash: `set -C` (noclobber) makes the redirection an atomic O_EXCL create,
 # so no external binary is spawned.
+cleanup_run() {
+    if [[ -n "${MM_LOCK_CREATED:-}" ]]; then
+        rm -f -- "$LOCKFILE"
+    fi
+    if [[ -n "${MM_TMPDIR:-}" ]]; then
+        rm -rf -- "$MM_TMPDIR"
+    fi
+}
+
 acquire_lock() {
     if [[ -n "${MM_LOCKED:-}" ]]; then
         return 0
@@ -1303,8 +1313,9 @@ acquire_lock() {
     if { : > "$LOCKFILE"; } 2>/dev/null; then
         [[ "$had_noclobber" == "true" ]] || set +C
         printf '%s\n' "$$" > "$LOCKFILE"
+        MM_LOCK_CREATED=1
         export MM_LOCKED=1
-        trap 'rm -f -- "$LOCKFILE"' EXIT
+        trap 'cleanup_run' EXIT
         return 0
     fi
     [[ "$had_noclobber" == "true" ]] || set +C
@@ -1344,7 +1355,7 @@ main() {
     if [[ "$DRY_RUN" == "true" ]]; then
         MM_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/mm-dryrun.XXXXXX")"
         DOMAIN_BLOCKS_FILE="$MM_TMPDIR/domain_blocks.txt"
-        trap 'rm -rf -- "$MM_TMPDIR"' EXIT
+        trap 'cleanup_run' EXIT
     fi
 
     check_prerequisites
