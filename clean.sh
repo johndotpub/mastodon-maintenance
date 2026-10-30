@@ -89,6 +89,7 @@ readonly DEFAULT_INACTIVE_DAYS=365
 readonly DEFAULT_DOMAIN_BATCH=25
 DOMAIN_BLOCKS_FILE="domain_blocks.txt"
 readonly LOCKFILE="${TMPDIR:-/tmp}/mastodon-maintenance.lock"
+unset MM_LOCK_CREATED
 
 # =============================================================================
 # Global state
@@ -1289,18 +1290,40 @@ preflight_informational() {
 }
 
 # Serialise runs so two overlapping cron jobs cannot purge concurrently.
+# Pure bash: `set -C` (noclobber) makes the redirection an atomic O_EXCL create,
+# so no external binary is spawned.
+cleanup_run() {
+    if [[ -n "${MM_LOCK_CREATED:-}" ]]; then
+        rm -f -- "$LOCKFILE"
+    fi
+    if [[ -n "${MM_TMPDIR:-}" ]]; then
+        rm -rf -- "$MM_TMPDIR"
+    fi
+}
+
 acquire_lock() {
     if [[ -n "${MM_LOCKED:-}" ]]; then
         return 0
     fi
 
-    if ! command_exists flock; then
-        print_warning "flock not available; proceeding without a run lock"
+    local had_noclobber=false
+    [[ -o noclobber ]] && had_noclobber=true
+
+    set -C
+    if { : > "$LOCKFILE"; } 2>/dev/null; then
+        [[ "$had_noclobber" == "true" ]] || set +C
+        printf '%s\n' "$$" > "$LOCKFILE"
+        MM_LOCK_CREATED=1
+        export MM_LOCKED=1
+        trap 'cleanup_run' EXIT
         return 0
     fi
+    [[ "$had_noclobber" == "true" ]] || set +C
 
-    export MM_LOCKED=1
-    exec flock -n "$LOCKFILE" "$0" "$@"
+    local holder=""
+    IFS= read -r holder < "$LOCKFILE" 2>/dev/null || true
+    print_error "Another run is already in progress (lock: $LOCKFILE${holder:+, pid $holder})"
+    exit 1
 }
 
 main() {
@@ -1332,7 +1355,7 @@ main() {
     if [[ "$DRY_RUN" == "true" ]]; then
         MM_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/mm-dryrun.XXXXXX")"
         DOMAIN_BLOCKS_FILE="$MM_TMPDIR/domain_blocks.txt"
-        trap 'rm -rf -- "$MM_TMPDIR"' EXIT
+        trap 'cleanup_run' EXIT
     fi
 
     check_prerequisites

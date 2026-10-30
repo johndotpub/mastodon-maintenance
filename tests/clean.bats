@@ -231,6 +231,16 @@ run_clean() {
     [ "$(cat "$TEST_TMP/domain_blocks.txt")" = "original" ]
 }
 
+@test "dry run releases the run lock for the next operation" {
+    mkdir -p "$TEST_TMP/tmp"
+    export TMPDIR="$TEST_TMP/tmp"
+    run_clean --media --dry-run
+    [ "$RC" -eq 0 ]
+    run_clean --feeds
+    [ "$RC" -eq 0 ]
+    [[ "$OUT" != *"Another run is already in progress"* ]]
+}
+
 @test "dry run passes --dry-run through to commands that support it" {
     run_clean --media --dry-run
     [[ "$OUT" == *"--dry-run"* ]]
